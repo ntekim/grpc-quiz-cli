@@ -80,7 +80,7 @@ type cliQuizService struct {
 	pb.UnimplementedCLIQuizServiceServer
 }
 
-func (s *cliQuizService) GetQuestions(_ context.Context, req *pb.NoRequestParam) (*pb.QuestionsResponsePayload, error) {
+func (s *cliQuizService) GetQuestions(_ context.Context, _ *pb.NoRequestParam) (*pb.QuestionsResponsePayload, error) {
 	return &pb.QuestionsResponsePayload{Questions: questions}, nil
 }
 
@@ -91,7 +91,7 @@ func (s *cliQuizService) SubmitAnswers(_ context.Context, req *pb.AnswersRequest
 			correctAnswersCount++
 		}
 	}
-	var percentageMultiplier = 100
+	percentageMultiplier := 100
 	resultPercentage := float32(correctAnswersCount) / float32(len(questions)) * float32(percentageMultiplier)
 	return &pb.ResultResponsePayload{CorrectAnswerCount: correctAnswersCount, ResultPercentage: resultPercentage}, nil
 }
@@ -109,6 +109,7 @@ func NewServer(wg *sync.WaitGroup) {
 	pb.RegisterCLIQuizServiceServer(grpcServer, &cliQuizService{})
 	log.Printf("Server is running on port 50051")
 	if err := grpcServer.Serve(lis); err != nil {
-		log.Fatalf("Failed to serve: %v", err)
+		log.Printf("Failed to serve: %v", err)
+		return
 	}
 }

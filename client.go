@@ -16,9 +16,11 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-var client pb.CLIQuizServiceClient
-var currentQuestionIndex = 0
-var questions []*pb.Question
+var (
+	client               pb.CLIQuizServiceClient
+	currentQuestionIndex = 0
+	questions            []*pb.Question
+)
 
 var answers map[int32]*pb.Answer
 
@@ -39,7 +41,7 @@ func getNextQuestion() {
 	}
 	for currentQuestionIndex < len(questions) {
 		question := questions[currentQuestionIndex]
-		fmt.Printf("\nQ%d: %s\n", question.Id, question.GetQuestionDesc())
+		fmt.Printf("\nQ%d: %s\n", question.GetId(), question.GetQuestionDesc())
 		for i, option := range question.GetOptions() {
 			fmt.Printf("%d) %s\n", i+1, option)
 		}
@@ -66,7 +68,7 @@ func getNextQuestion() {
 			answers[question.GetId()] = &pb.Answer{} // Initialize with an empty Answer struct
 		}
 
-		answers[question.GetId()].Answer = question.Options[answerIndex-1]
+		answers[question.GetId()].Answer = question.GetOptions()[answerIndex-1]
 
 		// Move to the next question
 		currentQuestionIndex++
@@ -97,7 +99,7 @@ func submitAnswers() {
 var quizCmd = &cobra.Command{
 	Use:   "start-quiz",
 	Short: "Start the quiz and answer questions one by one",
-	Run: func(cmd *cobra.Command, args []string) {
+	Run: func(_ *cobra.Command, _ []string) {
 		InitClient()
 
 		res, err := client.GetQuestions(context.Background(), &pb.NoRequestParam{})
@@ -119,7 +121,7 @@ var quizCmd = &cobra.Command{
 }
 
 func StartCLI() {
-	var rootCmd = &cobra.Command{Use: "quiz-cli"}
+	rootCmd := &cobra.Command{Use: "quiz-cli"}
 	rootCmd.AddCommand(quizCmd)
 
 	if err := rootCmd.Execute(); err != nil {
