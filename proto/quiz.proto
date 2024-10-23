@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package quiz;
+
+option go_package = "ggrpc-cli-quiz/proto";
+
+service CLIQuizService {
+    rpc GetQuestions(NoRequestParam) returns (QuestionsResponsePayload);
+    rpc SubmitAnswers(AnswersRequestPayload) returns (ResultResponsePayload);
+}
+
+message NoRequestParam {}
+
+message Question {
+    int32 id = 1;
+    string question_desc = 2;
+    repeated string options = 3;
+}
+
+message QuestionsResponsePayload {
+    repeated Question questions = 1;
+}
+
+message Answer {
+    int32 question_id = 1;
+    string answer = 2;
+}
+
+message AnswersRequestPayload {
+    repeated Answer answers = 1;
+}
+
+message ResultResponsePayload {
+    int32 correct_answer_count = 1;
+    float result_percentage = 2;
+}
