@@ -23,3 +23,6 @@ mod-download:
 
 proto-generate:
 	protoc --go_out=./proto --go-grpc_out=./proto/ proto/quiz.proto
+
+start:
+	go run . start-quiz
