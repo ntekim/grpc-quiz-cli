@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/google/uuid"
 	pb "github.com/ntekim/grpc-cli-quiz/proto"
 	"github.com/spf13/cobra"
-
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -22,7 +22,10 @@ var (
 	questions            []*pb.Question
 )
 
-var answers map[int32]*pb.Answer
+var (
+	answers map[int32]*pb.Answer
+	results map[int32]*pb.ResultResponsePayload
+)
 
 func InitClient() {
 	conn, err := grpc.NewClient("127.0.0.1:50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
@@ -32,6 +35,7 @@ func InitClient() {
 	}
 	client = pb.NewCLIQuizServiceClient(conn)
 	answers = make(map[int32]*pb.Answer)
+	results = make(map[int32]*pb.ResultResponsePayload)
 }
 
 func getNextQuestion() {
@@ -46,7 +50,6 @@ func getNextQuestion() {
 			fmt.Printf("%d) %s\n", i+1, option)
 		}
 
-		// Get user input for this question
 		reader := bufio.NewReader(os.Stdin)
 		fmt.Print("Enter your answer (number): ")
 		input, err := reader.ReadString('\n')
@@ -55,45 +58,60 @@ func getNextQuestion() {
 			return
 		}
 		input = strings.TrimSpace(input)
-
-		// Convert input to integer and validate
 		answerIndex, err := strconv.Atoi(input)
 		if err != nil || answerIndex < 1 || answerIndex > len(question.GetOptions()) {
 			fmt.Println("Invalid input. Please enter a valid option number.")
 			continue
 		}
 
-		// Check if the entry for question.Id exists, and initialize it if not
 		if answers[question.GetId()] == nil {
-			answers[question.GetId()] = &pb.Answer{} // Initialize with an empty Answer struct
+			answers[question.GetId()] = &pb.Answer{}
 		}
 
 		answers[question.GetId()].Answer = question.GetOptions()[answerIndex-1]
 
-		// Move to the next question
 		currentQuestionIndex++
 	}
 
 	fmt.Println("You have answered all questions. Submitting answers...")
-	submitAnswers() // Submit the answers after all questions are answered
+	submitAnswers()
 }
 
 func submitAnswers() {
-	fmt.Println("\nSubmitting your answers...")
+	fmt.Println("\nSubmitted your answers...")
+	userID := generateUUID()
 
 	answerList := []*pb.Answer{}
 	for qID, ans := range answers {
 		answerList = append(answerList, &pb.Answer{QuestionId: qID, Answer: ans.GetAnswer()})
 	}
-	req := &pb.AnswersRequestPayload{Answers: answerList}
+	req := &pb.AnswersRequestPayload{Answers: answerList, UserId: userID}
 
 	res, err := client.SubmitAnswers(context.Background(), req)
 	if err != nil {
 		fmt.Printf("Failed to submit answers: %v\n", err)
 		os.Exit(1)
 	}
+	var resultMsg string
+	resultLength := len(results)
+	if resultLength <= 0 {
+		resultMsg = "You're the first to attempt this quiz."
+	} else {
+		count := 0
+		for _, result := range results {
+			if res.GetResultPercentage() > result.GetResultPercentage() {
+				count++
+			}
+		}
+		results[int32(resultLength)+int32(1)] = res
+		resultLength = len(results)
+		percentageMultiplier := 100
+		userPercentagePerformance := float32(count) / float32(resultLength) * float32(percentageMultiplier)
+		resultMsg = fmt.Sprintf("You were better than %.0f%% of all quizzers.", float32(userPercentagePerformance))
+	}
 
 	fmt.Printf("You got %d correct answers!\n", res.GetCorrectAnswerCount())
+	fmt.Println(resultMsg)
 }
 
 var quizCmd = &cobra.Command{
@@ -118,6 +136,12 @@ var quizCmd = &cobra.Command{
 
 		getNextQuestion()
 	},
+}
+
+func generateUUID() string {
+	userID := uuid.New()
+
+	return userID.String()
 }
 
 func StartCLI() {

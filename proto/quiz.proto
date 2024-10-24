@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package quiz;
 
-option go_package = "ggrpc-cli-quiz/proto";
+option go_package = ".";
 
 service CLIQuizService {
     rpc GetQuestions(NoRequestParam) returns (QuestionsResponsePayload);
@@ -27,10 +27,16 @@ message Answer {
 }
 
 message AnswersRequestPayload {
-    repeated Answer answers = 1;
+    string user_id = 1;
+    repeated Answer answers = 2;
 }
 
 message ResultResponsePayload {
     int32 correct_answer_count = 1;
     float result_percentage = 2;
+    string user_id = 3;
+}
+
+message ResultList {
+    repeated ResultResponsePayload results = 1;
 }

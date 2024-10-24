@@ -3,6 +3,7 @@ module github.com/ntekim/grpc-cli-quiz
 go 1.22.5
 
 require (
+	github.com/google/uuid v1.6.0
 	github.com/spf13/cobra v1.8.1
 	google.golang.org/grpc v1.67.1
 	google.golang.org/protobuf v1.35.1

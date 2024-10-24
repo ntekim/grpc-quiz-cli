@@ -93,7 +93,7 @@ func (s *cliQuizService) SubmitAnswers(_ context.Context, req *pb.AnswersRequest
 	}
 	percentageMultiplier := 100
 	resultPercentage := float32(correctAnswersCount) / float32(len(questions)) * float32(percentageMultiplier)
-	return &pb.ResultResponsePayload{CorrectAnswerCount: correctAnswersCount, ResultPercentage: resultPercentage}, nil
+	return &pb.ResultResponsePayload{CorrectAnswerCount: correctAnswersCount, ResultPercentage: resultPercentage, UserId: req.GetUserId()}, nil
 }
 
 func NewServer(wg *sync.WaitGroup) {
