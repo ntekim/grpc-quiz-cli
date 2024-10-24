@@ -5,12 +5,16 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	pb "github.com/ntekim/grpc-cli-quiz/proto"
+	"github.com/ntekim/grpc-cli-quiz/server"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -25,77 +29,125 @@ var (
 var (
 	answers map[int32]*pb.Answer
 	results map[int32]*pb.ResultResponsePayload
+	port    string
 )
 
-func InitClient() {
-	conn, err := grpc.NewClient("127.0.0.1:50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		log.Printf("Failed to connect: %v", err)
-		os.Exit(1)
-	}
-	client = pb.NewCLIQuizServiceClient(conn)
-	answers = make(map[int32]*pb.Answer)
-	results = make(map[int32]*pb.ResultResponsePayload)
-}
-
-func getNextQuestion() {
+func getNextQuestion(ctx context.Context) {
 	if len(questions) == 0 {
 		fmt.Println("No questions to display.")
 		return
 	}
 	for currentQuestionIndex < len(questions) {
-		question := questions[currentQuestionIndex]
-		fmt.Printf("\nQ%d: %s\n", question.GetId(), question.GetQuestionDesc())
-		for i, option := range question.GetOptions() {
-			fmt.Printf("%d) %s\n", i+1, option)
-		}
-
-		reader := bufio.NewReader(os.Stdin)
-		fmt.Print("Enter your answer (number): ")
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			fmt.Printf("Failed to read input: %v\n", err)
+		select {
+		case <-ctx.Done():
+			log.Println("Exiting question loop...")
 			return
-		}
-		input = strings.TrimSpace(input)
-		answerIndex, err := strconv.Atoi(input)
-		if err != nil || answerIndex < 1 || answerIndex > len(question.GetOptions()) {
-			fmt.Println("Invalid input. Please enter a valid option number.")
-			continue
-		}
+		default:
+			question := questions[currentQuestionIndex]
+			shuffleOptions(question)
+			fmt.Printf("\nQ%d: %s\n", question.GetId(), question.GetQuestionDesc())
+			for i, option := range question.GetOptions() {
+				fmt.Printf("%d) %s\n", i+1, option)
+			}
 
-		if answers[question.GetId()] == nil {
-			answers[question.GetId()] = &pb.Answer{}
+			reader := bufio.NewReader(os.Stdin)
+			fmt.Print("Enter your answer (number): ")
+			input, err := reader.ReadString('\n')
+			fmt.Println()
+			if err != nil {
+				fmt.Printf("Failed to read input: %v\n", err)
+				return
+			}
+			input = strings.TrimSpace(input)
+			answerIndex, err := strconv.Atoi(input)
+			if err != nil || answerIndex < 1 || answerIndex > len(question.GetOptions()) {
+				fmt.Println("Invalid input. Please enter a valid option number.")
+				continue
+			}
+
+			if answers[question.GetId()] == nil {
+				answers[question.GetId()] = &pb.Answer{}
+			}
+
+			answers[question.GetId()].Answer = question.GetOptions()[answerIndex-1]
+
+			currentQuestionIndex++
 		}
-
-		answers[question.GetId()].Answer = question.GetOptions()[answerIndex-1]
-
-		currentQuestionIndex++
 	}
 
 	fmt.Println("You have answered all questions. Submitting answers...")
-	submitAnswers()
+	submitAnswers(ctx)
 }
 
-func submitAnswers() {
-	fmt.Println("\nSubmitted your answers...")
-	userID := generateUUID()
+func submitAnswers(ctx context.Context) {
+	select {
+	case <-ctx.Done():
+		log.Println("Exiting question loop...")
+		return
+	default:
+		fmt.Println("\nSubmitted your answers...")
+		userID := generateUUID()
 
-	answerList := []*pb.Answer{}
-	for qID, ans := range answers {
-		answerList = append(answerList, &pb.Answer{QuestionId: qID, Answer: ans.GetAnswer()})
+		answerList := []*pb.Answer{}
+		for qID, ans := range answers {
+			answerList = append(answerList, &pb.Answer{QuestionId: qID, Answer: ans.GetAnswer()})
+		}
+		req := &pb.AnswersRequestPayload{Answers: answerList, UserId: userID}
+
+		res, err := client.SubmitAnswers(ctx, req)
+		if err != nil {
+			fmt.Printf("Failed to submit answers: %v\n", err)
+			return
+		}
+		resultMsg := compareResults(res)
+
+		fmt.Printf("You got %d correct answers!\n", res.GetCorrectAnswerCount())
+		fmt.Println(resultMsg)
+
+		retakeQuiz(ctx)
+
 	}
-	req := &pb.AnswersRequestPayload{Answers: answerList, UserId: userID}
+}
 
-	res, err := client.SubmitAnswers(context.Background(), req)
+func retakeQuiz(ctx context.Context) {
+	fmt.Println(results)
+	fmt.Println()
+	fmt.Println("Retake Quiz?")
+	fmt.Println("1) Yes")
+	fmt.Println("2) No")
+
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Print("Enter your answer (number): ")
+	input, err := reader.ReadString('\n')
+	fmt.Println()
 	if err != nil {
-		fmt.Printf("Failed to submit answers: %v\n", err)
-		os.Exit(1)
+		fmt.Printf("Failed to read input: %v\n", err)
+		return
 	}
+	input = strings.TrimSpace(input)
+	answerIndex, err := strconv.Atoi(input)
+	if err != nil || answerIndex != 2 && answerIndex != 1 {
+		fmt.Println("Invalid input. Please enter a valid option number.")
+		retakeQuiz(ctx)
+	}
+	switch answerIndex {
+	case 1:
+		fmt.Println("Retaking quiz...")
+		currentQuestionIndex = 0
+		answers = make(map[int32]*pb.Answer)
+		getNextQuestion(ctx)
+	case 2:
+		fmt.Println("Exiting quiz...")
+		os.Exit(0)
+	}
+}
+
+func compareResults(res *pb.ResultResponsePayload) string {
 	var resultMsg string
 	resultLength := len(results)
 	if resultLength <= 0 {
 		resultMsg = "You're the first to attempt this quiz."
+		results[int32(0)] = res
 	} else {
 		count := 0
 		for _, result := range results {
@@ -110,32 +162,7 @@ func submitAnswers() {
 		resultMsg = fmt.Sprintf("You were better than %.0f%% of all quizzers.", float32(userPercentagePerformance))
 	}
 
-	fmt.Printf("You got %d correct answers!\n", res.GetCorrectAnswerCount())
-	fmt.Println(resultMsg)
-}
-
-var quizCmd = &cobra.Command{
-	Use:   "start-quiz",
-	Short: "Start the quiz and answer questions one by one",
-	Run: func(_ *cobra.Command, _ []string) {
-		InitClient()
-
-		res, err := client.GetQuestions(context.Background(), &pb.NoRequestParam{})
-		if err != nil {
-			fmt.Printf("Failed to get questions: %v\n", err)
-			os.Exit(1)
-		}
-
-		if res.GetQuestions() == nil || len(res.GetQuestions()) == 0 {
-			fmt.Println("No questions received from the server.")
-			return
-		}
-
-		questions = res.GetQuestions()
-		fmt.Printf("Number of questions fetched: %d\n", len(questions))
-
-		getNextQuestion()
-	},
+	return resultMsg
 }
 
 func generateUUID() string {
@@ -144,12 +171,84 @@ func generateUUID() string {
 	return userID.String()
 }
 
-func StartCLI() {
+func shuffleQuestions(questions []*pb.Question) []*pb.Question {
+	rand.New(rand.NewSource(time.Now().UnixNano()))
+	rand.Shuffle(len(questions), func(i, j int) {
+		questions[i], questions[j] = questions[j], questions[i]
+	})
+	return questions
+}
+
+func shuffleOptions(question *pb.Question) {
+	rand.New(rand.NewSource(time.Now().UnixNano()))
+	rand.Shuffle(len(question.GetOptions()), func(i, j int) {
+		question.GetOptions()[i], question.GetOptions()[j] = question.GetOptions()[j], question.GetOptions()[i]
+	})
+}
+
+func InitClient(port string) error {
+	conn, err := grpc.NewClient("127.0.0.1:"+port, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Printf("Failed to connect: %v", err)
+		return err
+	}
+	client = pb.NewCLIQuizServiceClient(conn)
+	answers = make(map[int32]*pb.Answer)
+	results = make(map[int32]*pb.ResultResponsePayload)
+	return nil
+}
+
+var quizCmd = &cobra.Command{
+	Use:   "start-quiz",
+	Short: "Start the quiz and answer questions one by one",
+	Run: func(cmd *cobra.Command, _ []string) {
+		var wg sync.WaitGroup
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+			server.NewServer(cmd.Context(), &wg, port)
+		}()
+
+		time.Sleep(2 * time.Second)
+
+		go func() {
+			<-cmd.Context().Done()
+			log.Println("Quiz interrupted, shutting down gracefully...")
+		}()
+
+		if err := InitClient(port); err != nil {
+			log.Printf("Failed to initialize client: %v\n", err)
+			return
+		}
+
+		res, err := client.GetQuestions(cmd.Context(), &pb.NoRequestParam{})
+		if err != nil {
+			log.Printf("Failed to get questions: %v\n", err)
+			return
+		}
+
+		if res.GetQuestions() == nil || len(res.GetQuestions()) == 0 {
+			fmt.Println("No questions received from the server.")
+			return
+		}
+		shuffledQuestions := shuffleQuestions(res.GetQuestions())
+		questions = shuffledQuestions
+
+		getNextQuestion(cmd.Context())
+		wg.Wait()
+	},
+}
+
+func StartCLI(ctx context.Context) error {
+	fmt.Println("Starting Quiz...")
 	rootCmd := &cobra.Command{Use: "quiz-cli"}
+	quizCmd.PersistentFlags().StringVarP(&port, "port", "p", "50051", "Server port")
 	rootCmd.AddCommand(quizCmd)
 
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
+		log.Println(err)
+		return err
 	}
+	return nil
 }

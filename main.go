@@ -1,21 +1,27 @@
 package main
 
 import (
-	"sync"
-	"time"
-
-	"github.com/ntekim/grpc-cli-quiz/server"
+	"context"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
 )
 
 func main() {
-	var wg sync.WaitGroup
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
 
-	wg.Add(1)
-	go server.NewServer(&wg)
+	go func() {
+		err := StartCLI(ctx)
+		if err != nil {
+			log.Println("Error executing CLI:", err)
+			cancel()
+		}
+	}()
 
-	time.Sleep(2 * time.Second)
+	<-ctx.Done()
 
-	StartCLI()
-
-	wg.Wait()
+	log.Println("All goroutines finished. Exiting.")
+	os.Exit(0)
 }

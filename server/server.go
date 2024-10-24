@@ -96,18 +96,21 @@ func (s *cliQuizService) SubmitAnswers(_ context.Context, req *pb.AnswersRequest
 	return &pb.ResultResponsePayload{CorrectAnswerCount: correctAnswersCount, ResultPercentage: resultPercentage, UserId: req.GetUserId()}, nil
 }
 
-func NewServer(wg *sync.WaitGroup) {
-	defer wg.Done()
-
-	lis, err := net.Listen("tcp", "127.0.0.1:50051")
+func NewServer(ctx context.Context, wg *sync.WaitGroup, port string) {
+	lis, err := net.Listen("tcp", "127.0.0.1:"+port)
 	if err != nil {
 		log.Printf("Failed to listen: %v", err)
-		wg.Done()
 		return
 	}
 	grpcServer := grpc.NewServer()
 	pb.RegisterCLIQuizServiceServer(grpcServer, &cliQuizService{})
-	log.Printf("Server is running on port 50051")
+	go func() {
+		<-ctx.Done()
+		log.Println("Received shutdown signal, stopping gRPC server...")
+		grpcServer.GracefulStop()
+		log.Println("gRPC server stopped gracefully")
+	}()
+
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Printf("Failed to serve: %v", err)
 		return
