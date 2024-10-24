@@ -110,7 +110,6 @@ func submitAnswers(ctx context.Context) {
 }
 
 func retakeQuiz(ctx context.Context) {
-	fmt.Println(results)
 	fmt.Println()
 	fmt.Println("Retake Quiz?")
 	fmt.Println("1) Yes")

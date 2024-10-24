@@ -26,9 +26,3 @@ proto-generate:
 
 start:
 	go run . start-quiz
-
-start-quiz-2:
-	go run . start-quiz 50055
-
-start-quiz-3:
-	go run . start-quiz 50000
